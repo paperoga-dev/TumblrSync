@@ -36,11 +36,11 @@ interface Response<T> {
 }
 
 
-interface ArraySupport {
+interface ArraySupport<T> {
     totalKey: string;
     valuesKey: string;
     keyIndex?: string;
-    progress?: (current: number, total: number) => void;
+    process?: (latest: T[]) => Promise<void>;
 }
 
 export interface Blog {
@@ -70,7 +70,53 @@ export interface Contact {
     updated: number;
 }
 
-type QueryParams = Record<PropertyKey, number | string>;
+export interface ContentItem {
+    type: string;
+    [key: string]: unknown;
+}
+
+export interface MediaItem {
+    [key: string]: unknown;
+    url: string;
+    type: string;
+    width?: number;
+    height?: number;
+    original_dimensions_missing?: boolean;
+    cropped?: boolean;
+    has_original_dimensions?: boolean;
+}
+
+export interface ImageItem extends ContentItem {
+    type: "image";
+    media: MediaItem[];
+}
+
+export interface AudioItem extends ContentItem {
+    type: "audio";
+    media: MediaItem;
+    provider: string;
+}
+
+export interface VideoItem extends ContentItem {
+    type: "video";
+    media: MediaItem;
+    provider: string;
+}
+
+type BackuppableItem = ImageItem | AudioItem | VideoItem;
+
+export interface Content {
+    items: BackuppableItem[];
+}
+
+export interface Post {
+    [key: string]: unknown;
+    id_string: string;
+    timestamp: number;
+    content: Content;
+}
+
+type QueryParams = Record<string, number | string | boolean>;
 type ArrayQueryParams = QueryParams & {
     limit: number;
     offset: number;
@@ -85,12 +131,21 @@ export class Client {
     }
 
     public async apiArrayCall<T>(
-        api: string, support: ArraySupport, parameters?: ArrayQueryParams
+        api: string, support: ArraySupport<T>, parameters?: QueryParams
     ): Promise<T[]> {
-        const newParams = { ...parameters ?? {} as ArrayQueryParams };
-        newParams.limit = 20;
-        newParams.offset = 0;
-        const res = await this.doApiArrayCall(api, [], support, newParams);
+        const newParams = { ...parameters ?? {} };
+        if (!Object.hasOwn(newParams, "limit")) {
+            newParams["limit"] = -1;
+        }
+
+        if (!Object.hasOwn(newParams, "offset")) {
+            newParams["offset"] = 0;
+        }
+
+        const localParams = { ...newParams } as ArrayQueryParams;
+        localParams.limit = 20;
+
+        const res = await this.doApiArrayCall(api, [], support, newParams as ArrayQueryParams, localParams);
         return res;
     }
 
@@ -162,10 +217,10 @@ export class Client {
         });
     }
 
-    private async doApiArrayCall<T>(
-        api: string, prev: T[], support: ArraySupport, parameters: ArrayQueryParams
+    private async doApiArrayCall<T extends Record<string, unknown>>(
+        api: string, prev: T[], support: ArraySupport<T>, globalParameters: ArrayQueryParams, localParameters: ArrayQueryParams
     ): Promise<T[]> {
-        const data = await this.apiCall<Record<PropertyKey, unknown>>(api, parameters);
+        const data = await this.apiCall<Record<PropertyKey, unknown>>(api, localParameters);
 
         const total = data[support.totalKey] as number;
         const values = data[support.valuesKey] as T[];
@@ -184,26 +239,34 @@ export class Client {
         } else {
             const filter = new Map<unknown, T>();
             for (const value of newValues) {
-                /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-                /* eslint-disable @typescript-eslint/no-explicit-any */
-                filter.set((value as any)[support.keyIndex], value);
+                filter.set(value[support.keyIndex], value);
             }
 
             newData = Array.from(filter.values());
         }
 
-        if (support.progress) {
-            support.progress(newData.length, total);
+        if (support.process) {
+            await support.process(newData.slice(prev.length));
         }
 
-        if (parameters.offset + 20 >= total) {
-            return newData;
+        switch (globalParameters.limit) {
+            case -1:
+                if (newData.length >= total) {
+                    return newData.slice(0, total);
+                }
+                break;
+
+            default:
+                if (globalParameters.limit <= newData.length) {
+                    return newData.slice(0, globalParameters.limit);
+                }
+                break;
         }
 
-        const newParams = { ...parameters };
-        newParams.offset += 20;
+        const newParams = { ...localParameters };
+        newParams.offset = globalParameters.offset + newData.length;
         newParams.limit = 20;
-        const res = await this.doApiArrayCall(api, newData, support, newParams);
+        const res = await this.doApiArrayCall(api, newData, support, globalParameters, newParams);
         return res;
     }
 

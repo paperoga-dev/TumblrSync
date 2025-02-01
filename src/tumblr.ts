@@ -219,7 +219,8 @@ export class Client {
                     ? {
                         refresh_token: refreshToken
                     } : {
-                        code: process.env["CODE"]
+                        code: process.env["CODE"],
+                        redirect_uri: process.env["REDIRECT_URI"]
                     }
                 )
             });
@@ -236,6 +237,8 @@ export class Client {
                     "Content-Length": Buffer.byteLength(tokenData)
                 }
             }, (res) => {
+                res.setEncoding("utf8");
+
                 res.on("data", (chunk) => {
                     authData += chunk;
                 });
@@ -250,6 +253,10 @@ export class Client {
 
             authReq.on("error", (err) => {
                 reject(err);
+            });
+
+            authReq.on('timeout', () => {
+                authReq.destroy(); // Abort the request on timeout
             });
 
             authReq.write(tokenData);
@@ -267,7 +274,7 @@ export class Client {
                 this.token = await this.getNewToken(this.token?.refresh_token);
             }
         } catch (ignoreErr) {
-            this.getNewToken();
+            await this.getNewToken();
             await this.fetchToken();
         }
     }

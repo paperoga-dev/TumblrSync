@@ -1,4 +1,4 @@
-import * as tumblr from "./tumblr";
+import * as tumblr from "./tumblr.js";
 
 const client = new tumblr.Client("/tmp");
 

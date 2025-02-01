@@ -5,6 +5,9 @@
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
+    "build": "tsc --build --force --verbose",
+    "prestart": "tsc --build --force --verbose",
+    "start": "node --env-file=.env dist/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

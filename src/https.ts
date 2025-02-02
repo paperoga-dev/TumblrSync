@@ -1,8 +1,9 @@
+import * as fs from "node:fs";
 import * as https from "node:https";
+import * as path from "node:path";
 import * as timers from "node:timers";
 import type * as url from "node:url";
 
-import { createWriteStream } from "node:fs";
 import packageJson from "../package.json" assert { type: "json" };
 
 export class TokenError extends Error {
@@ -44,13 +45,20 @@ async function doRequest(
             switch (res.statusCode) {
                 case 200:
                     if (outputFileName) {
-                        const file = createWriteStream(outputFileName);
-                        file.on("finish", () => {
-                            file.close();
-                            resolve();
-                        });
+                        fs.mkdir(path.dirname(outputFileName), { recursive: true }, (err) => {
+                            if (err) {
+                                reject(err);
+                                return;
+                            }
 
-                        res.pipe(file);
+                            const file = fs.createWriteStream(outputFileName);
+                            file.on("finish", () => {
+                                file.close();
+                                resolve();
+                            });
+
+                            res.pipe(file);
+                        });
                         return;
                     }
 

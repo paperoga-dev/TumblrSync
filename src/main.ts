@@ -55,18 +55,8 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
         await fs.writeFile(tgtPostFile, JSON.stringify(post, null, 2));
 
         const mediaPath = path.join(tgtPath, post.id_string);
-        const mkdirMedia = async (): Promise<void> => {
-            try {
-                await fs.mkdir(mediaPath, { recursive: true });
-            } catch (ignoreErr) {
-
-            }
-        };
-
         const backupMedia = async (item: tumblr.BackuppableItem): Promise<void> => {
             if (item.type === "image") {
-                await mkdirMedia();
-
                 let largest: tumblr.MediaItem | undefined = undefined;
                 let largestArea = 0;
                 for (const img of item.media) {
@@ -87,7 +77,6 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
             }
 
             if ((item.type === "video" || item.type === "audio") && item.provider === "tumblr") {
-                await mkdirMedia();
                 const mediaUrl = new url.URL(item.media.url);
                 const mediaFileName = path.basename(mediaUrl.pathname);
                 console.info(`\t and ${item.type} ${mediaFileName}...`);

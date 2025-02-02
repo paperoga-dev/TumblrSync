@@ -282,7 +282,7 @@ export class Client {
         const newParams = { ...localParameters };
         newParams.offset = globalParameters.offset + newValues.length;
         newParams.limit = 20;
-        return this.doApiArrayCall(api, newValues, support, globalParameters, newParams);
+        return values.length === 0 ? newValues : this.doApiArrayCall(api, newValues, support, globalParameters, newParams);
     }
 
     private async getNewToken(refreshToken?: string): Promise<Token> {

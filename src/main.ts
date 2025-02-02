@@ -44,6 +44,8 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
                 }
 
                 continue;
+            } else {
+                console.warn(`Post ${post.id_string} has changed, updating...`);
             }
         } catch (ignoreErr) {
 

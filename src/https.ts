@@ -4,8 +4,6 @@ import * as path from "node:path";
 import * as timers from "node:timers";
 import type * as url from "node:url";
 
-import packageJson from "../package.json" assert { type: "json" };
-
 export class TokenError extends Error {
     public constructor(message: string) {
         super(message);
@@ -36,7 +34,7 @@ async function doRequest(
 
         const req = https.request({
             headers: {
-                "User-Agent": `${packageJson.displayName}/${packageJson.version}`
+                "User-Agent": `TumblrSync/1.0.0`
             },
             ...options
         }, (res) => {
@@ -87,7 +85,6 @@ async function doRequest(
         });
 
         req.setTimeout(10000);
-        req.setDefaultEncoding("utf8");
 
         req.on("error", (err) => {
             retry(`request error, ${err.toString()}`);

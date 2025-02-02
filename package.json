@@ -6,9 +6,9 @@
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
-    "lint": "eslint . **/*.ts",
+    "lint": "eslint **/*.ts",
     "prebuild": "npm run lint",
-    "build": "tsc --build --force --verbose",
+    "build": "rm -rf dist && tsc --build --force --verbose",
     "prestart": "npm run build",
     "start": "node --env-file=.env dist/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"

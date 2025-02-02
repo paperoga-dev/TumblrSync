@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as https from "node:https";
 import * as path from "node:path";
@@ -12,27 +13,18 @@ interface Token {
     scope: string;
 }
 
-interface ArrayLink {
-    href: string;
-    method: string;
-    // eslint-disable-next-line @typescript-eslint/naming-convention
-    query_params: {
-        limit: string;
-        offset: string;
-    };
+interface Hash {
+    hash: string;
 }
 
-interface ArrayLinks {
-    next?: ArrayLink;
-    prev?: ArrayLink;
-}
+export type Hashed<T> = T & Hash;
 
 interface Response<T> {
     meta: {
         status: number;
         msg: string;
     };
-    response: Partial<ArrayLinks> & T;
+    response: Hashed<T>;
 }
 
 
@@ -40,7 +32,7 @@ interface ArraySupport<T> {
     totalKey: string;
     valuesKey: string;
     keyIndex?: string;
-    process?: (latest: T[]) => Promise<void>;
+    process?: (startOffset: number, latest: Hashed<T>[]) => Promise<void>;
 }
 
 export interface Blog {
@@ -103,17 +95,18 @@ export interface VideoItem extends ContentItem {
     provider: string;
 }
 
-type BackuppableItem = ImageItem | AudioItem | VideoItem;
+export type BackuppableItem = ImageItem | AudioItem | VideoItem;
 
-export interface Content {
-    items: BackuppableItem[];
+interface TrailItem {
+    content: BackuppableItem[];
 }
 
 export interface Post {
     [key: string]: unknown;
     id_string: string;
     timestamp: number;
-    content: Content;
+    content: BackuppableItem[];
+    trail: TrailItem[];
 }
 
 type QueryParams = Record<string, number | string | boolean>;
@@ -130,9 +123,9 @@ export class Client {
         this.tokenPath = path.join(appPath, "token.json");
     }
 
-    public async apiArrayCall<T>(
+    public async apiArrayCall<T extends Record<string, unknown>>(
         api: string, support: ArraySupport<T>, parameters?: QueryParams
-    ): Promise<T[]> {
+    ): Promise<Hashed<T>[]> {
         const newParams = { ...parameters ?? {} };
         if (!Object.hasOwn(newParams, "limit")) {
             newParams["limit"] = -1;
@@ -149,10 +142,10 @@ export class Client {
         return res;
     }
 
-    public async apiCall<T>(api: string, parameters?: QueryParams): Promise<T> {
+    public async apiCall<T extends Record<string, unknown>>(api: string, parameters?: QueryParams): Promise<Hashed<T>> {
         await this.fetchToken();
 
-        return new Promise<T>((resolve, reject) => {
+        return new Promise<Hashed<T>>((resolve, reject) => {
             const params = querystring.stringify({
                 api_key: process.env["CLIENT_ID"],
                 ...(parameters ?? {})
@@ -183,6 +176,7 @@ export class Client {
                             }
 
                             const result = JSON.parse(apiData) as Response<T>;
+                            result.response.hash = crypto.createHash("sha1").update(apiData).digest("hex");
 
                             switch (result.meta.status) {
                                 case 200:
@@ -218,26 +212,26 @@ export class Client {
     }
 
     private async doApiArrayCall<T extends Record<string, unknown>>(
-        api: string, prev: T[], support: ArraySupport<T>, globalParameters: ArrayQueryParams, localParameters: ArrayQueryParams
-    ): Promise<T[]> {
+        api: string, prev: Hashed<T>[], support: ArraySupport<T>, globalParameters: ArrayQueryParams, localParameters: ArrayQueryParams
+    ): Promise<Hashed<T>[]> {
         const data = await this.apiCall<Record<PropertyKey, unknown>>(api, localParameters);
 
         const total = data[support.totalKey] as number;
-        const values = data[support.valuesKey] as T[];
+        const values = data[support.valuesKey] as Hashed<T>[];
 
         const newValues = [
             ...prev,
             ...values
         ];
 
-        let newData: T[] = [];
+        let newData: Hashed<T>[] = [];
 
         if (support.keyIndex === undefined) {
             const filter = new Set(newValues);
 
             newData = Array.from(filter.values());
         } else {
-            const filter = new Map<unknown, T>();
+            const filter = new Map<unknown, Hashed<T>>();
             for (const value of newValues) {
                 filter.set(value[support.keyIndex], value);
             }
@@ -246,7 +240,10 @@ export class Client {
         }
 
         if (support.process) {
-            await support.process(newData.slice(prev.length));
+            await support.process(
+                globalParameters.offset + prev.length,
+                newData.slice(prev.length)
+            );
         }
 
         switch (globalParameters.limit) {
@@ -300,6 +297,11 @@ export class Client {
                     "Content-Length": Buffer.byteLength(tokenData)
                 }
             }, (res) => {
+                if (res.statusCode !== 200) {
+                    reject(new Error(`${res.statusCode} ${res.statusMessage}`));
+                    return;
+                }
+
                 res.setEncoding("utf8");
 
                 res.on("data", (chunk) => {

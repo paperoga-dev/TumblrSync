@@ -50,13 +50,13 @@ async function getFile(source: url.URL, outputFileName: string): Promise<void> {
     });
 }
 
-async function storePosts(posts: tumblr.Post[]): Promise<void> {
+async function storePosts(posts: tumblr.Hashed<tumblr.Post>[]): Promise<void> {
     for (const post of posts) {
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
             process.env["BACKUP_DIR"] ?? "",
             when.getFullYear().toString(),
-            when.getMonth().toString().padStart(2, "0"),
+            (when.getMonth() + 1).toString().padStart(2, "0"),
             when.getDate().toString().padStart(2, "0")
         );
 
@@ -66,6 +66,17 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
 
         }
 
+        const tgtPostFile = path.join(tgtPath, `${post.id_string}.json`);
+        try {
+            const oldPost = JSON.parse(await fs.readFile(tgtPostFile, { encoding: "utf-8" })) as tumblr.Hashed<tumblr.Post>;
+            if (oldPost.hash === post.hash) {
+                continue;
+            }
+        } catch (ignoreErr) {
+
+        }
+
+        process.stdout.write(`Storing post ${post.id_string}...\n`);
         await fs.writeFile(
             path.join(
                 tgtPath,
@@ -83,7 +94,7 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
             }
         };
 
-        for (const item of post.content.items) {
+        const backupMedia = async(item: tumblr.BackuppableItem) => {
             if (item.type === "image") {
                 mkdirMedia();
 
@@ -97,41 +108,77 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
                 }
 
                 if (!largest) {
-                    continue;
+                    return;
                 }
 
                 const imgUrl = new url.URL(largest.url);
-                await getFile(new url.URL(largest.url), path.join(mediaPath, path.basename(imgUrl.pathname)));
+                const imgFileName = path.basename(imgUrl.pathname);
+                process.stdout.write(`\t and image ${imgFileName}...\n`);
+
+                await getFile(new url.URL(largest.url), path.join(mediaPath, imgFileName));
             }
 
             if ((item.type === "video" || item.type === "audio") && item.provider === "tumblr"){
                 mkdirMedia();
                 const mediaUrl = new url.URL(item.media.url);
-                await getFile(mediaUrl, path.join(mediaPath, path.basename(mediaUrl.pathname)));
+                const mediaFileName = path.basename(mediaUrl.pathname);
+                process.stdout.write(`\t and image ${mediaFileName}...\n`);
+                await getFile(mediaUrl, path.join(mediaPath, mediaFileName));
+            }
+        };
+
+        for (const item of post.content) {
+            await backupMedia(item);
+        }
+
+        for (const item of post.trail) {
+            for (const trailItem of item.content) {
+                await backupMedia(trailItem);
             }
         }
+
+        process.stdout.write("\n");
     }
 }
 
-const client = new tumblr.Client("/tmp");
+if (!process.env["BACKUP_DIR"]) {
+    throw new Error("BACKUP_DIR not set");
+}
 
-const posts = await client.apiArrayCall<tumblr.Post>(
+if (!process.env["BLOG_NAME"]) {
+    throw new Error("BLOG_NAME not set");
+}
+
+try {
+    fs.mkdir(process.env["BACKUP_DIR"], { recursive: true });
+} catch (ignoreErr) {
+
+}
+
+const client = new tumblr.Client(process.env["BACKUP_DIR"]);
+
+let latestOffset = 0;
+
+try {
+    latestOffset = Math.max(parseInt(await fs.readFile(path.join(process.env["BACKUP_DIR"], "offset"), { encoding: "utf-8" })) - 20, 0);
+} catch (ignoreErr) {
+
+}
+
+await client.apiArrayCall<tumblr.Post>(
     `blog/${process.env["BLOG_NAME"]}/posts`,
     {
         totalKey: "total_posts",
         valuesKey: "posts",
         keyIndex: "id_string",
-        process: async (newPosts) => {
-            return storePosts(newPosts);
+        process: async (startOffset, newPosts) => {
+            await storePosts(newPosts);
+            await fs.writeFile(path.join(process.env["BACKUP_DIR"]!, "offset"), (startOffset + newPosts.length).toString());
         }
     },
     {
-        limit: 20,
-        offset: 0,
+        limit: 100,
+        offset: latestOffset,
         npf: true
     }
 );
-
-for (const post of posts) {
-    console.log(post.id_string);
-}

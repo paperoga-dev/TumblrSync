@@ -1,10 +1,13 @@
 {
   "name": "tumblrsync",
+  "displayName": "HappyCode",
   "version": "1.0.0",
   "description": "Keeps a local Tumblr copy of the blog",
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
+    "lint": "eslint . **/*.ts",
+    "prebuild": "npm run lint",
     "build": "tsc --build --force --verbose",
     "prestart": "tsc --build --force --verbose",
     "start": "node --env-file=.env dist/main.js",
@@ -13,8 +16,17 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@eslint/json": "^0.10.0",
+    "@eslint/markdown": "^6.2.2",
+    "@stylistic/eslint-plugin": "^3.0.1",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^22.13.0",
+    "@typescript-eslint/eslint-plugin": "^8.22.0",
+    "@typescript-eslint/parser": "^8.22.0",
+    "eslint": "^9.19.0",
+    "eslint-plugin-n": "^17.15.1",
+    "globals": "^15.14.0",
     "typescript": "^5.7.3"
   },
   "dependencies": {

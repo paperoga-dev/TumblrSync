@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import * as https from "node:https";
+import * as https from "./https.js";
 import * as path from "node:path";
 import * as querystring from "node:querystring";
 import * as timers from "node:timers";
@@ -58,8 +58,8 @@ export interface Contact {
 }
 
 export interface ContentItem {
-    type: string;
     [key: string]: unknown;
+    type: string;
 }
 
 export interface MediaItem {
@@ -124,11 +124,11 @@ export class Client {
     ): Promise<T[]> {
         const newParams = { ...parameters ?? {} };
         if (!Object.hasOwn(newParams, "limit")) {
-            newParams["limit"] = -1;
+            newParams.limit = -1;
         }
 
         if (!Object.hasOwn(newParams, "offset")) {
-            newParams["offset"] = 0;
+            newParams.offset = 0;
         }
 
         const localParams = { ...newParams } as ArrayQueryParams;
@@ -142,109 +142,39 @@ export class Client {
         await this.fetchToken();
 
         const current = Date.now();
-        if (this.lastCall && (current - this.lastCall) < 2000) {
-            await new Promise((resolve) => timers.setTimeout(resolve, current - this.lastCall!));
+        if (this.lastCall && current - this.lastCall < 2000) {
+            await new Promise((resolve) => {
+                // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                timers.setTimeout(resolve, current - this.lastCall!);
+            });
         }
         this.lastCall = current;
 
-        return new Promise<T>((resolve, reject) => {
-            const params = querystring.stringify({
-                api_key: process.env["CLIENT_ID"],
-                ...(parameters ?? {})
-            });
-
-            let apiData = "";
-
-            console.debug(`calling API: /v2/${api}?${params}`);
-
-            const apiReq = https.request({
-                hostname: "api.tumblr.com",
-                port: 443,
-                path: `/v2/${api}?${params}`,
-                method: "GET",
-                headers: {
-                    Authorization: `Bearer ${this.token?.access_token}`,
-                    "User-Agent": "TumblrSync/1.0.0"
-                }
-            }, (res) => {
-                res.on("data", (chunk) => {
-                    apiData += chunk;
-                });
-
-                res.on("end", async () => {
-                    switch (res.statusCode) {
-                        case 200:
-                            if (apiData === "") {
-                                reject(new Error("No response"));
-                                return;
-                            }
-
-                            const result = JSON.parse(apiData) as Response<T>;
-
-                            switch (result.meta.status) {
-                                case 200:
-                                    resolve(result.response);
-                                    break;
-
-                                case 401:
-                                    try {
-                                        await this.fetchToken();
-                                        timers.setImmediate(() => {
-                                            console.debug(`\ttrying new token`);
-                                            resolve(this.apiCall(api, parameters));
-                                        });
-                                    } catch (err) {
-                                        reject(err);
-                                    }
-                                    break;
-
-                                default:
-                                    reject(new Error(`${result.meta.status} ${result.meta.msg}`));
-                                    break;
-                            }
-                            break;
-
-                        case 401:
-                            try {
-                                await this.fetchToken();
-                                timers.setImmediate(() => {
-                                    console.debug(`\ttrying new token`);
-                                    resolve(this.apiCall(api, parameters));
-                                });
-                            } catch (err) {
-                                reject(err);
-                            }
-                            break;
-
-                        case 429:
-                            timers.setTimeout(() => {
-                                console.debug(`\trate limit reached, retrying in 10 seconds...`);
-                                resolve(this.apiCall(api, parameters));
-                            }, 10000);
-                            break;
-
-                        default:
-                            reject(new Error(`${res.statusCode} ${res.statusMessage}`));
-                            break;
-                    }
-                });
-            });
-
-            apiReq.on("error", (err) => {
-                reject(err);
-            });
-
-            apiReq.on("timeout", () => {
-                apiReq.destroy();
-
-                timers.setTimeout(() => {
-                    console.debug(`\ttimeout, retrying in 10 seconds...`);
-                    resolve(this.apiCall(api, parameters));
-                }, 10000);
-            });
-
-            apiReq.end();
+        const params = querystring.stringify({
+            // eslint-disable-next-line camelcase
+            api_key: process.env.CLIENT_ID,
+            ...parameters ?? {}
         });
+
+        console.debug(`calling API: /v2/${api}?${params}`);
+
+        try {
+            const jsonData = await https.get({
+                headers: {
+                    Authorization: `Bearer ${this.token?.access_token}`
+                },
+                path: `/v2/${api}?${params}`
+            });
+            const result = JSON.parse(jsonData) as Response<T>;
+            return result.response;
+        } catch (err) {
+            if (err instanceof https.TokenError) {
+                await this.fetchToken(true);
+                return this.apiCall(api, parameters);
+            }
+
+            throw err;
+        }
     }
 
     private async doApiArrayCall<T extends Record<string, unknown>>(
@@ -253,7 +183,7 @@ export class Client {
         const data = await this.apiCall<Record<PropertyKey, unknown>>(api, localParameters);
 
         const total = data[support.totalKey] as number;
-        const values = (data[support.valuesKey] as T[]).filter((value) => !support.keys.has(value[support.keyIndex] as string));
+        const values = (data[support.valuesKey] as T[]).filter(value => !support.keys.has(value[support.keyIndex] as string));
         for (const value of values) {
             support.keys.add(value[support.keyIndex] as string);
         }
@@ -286,75 +216,41 @@ export class Client {
     }
 
     private async getNewToken(refreshToken?: string): Promise<Token> {
-        return new Promise<Token>((resolve, reject) => {
-            const tokenData = querystring.stringify({
-                ...{
-                    grant_type: refreshToken ? "refresh_token" : "authorization_code",
-                    client_id: process.env["CLIENT_ID"],
-                    client_secret: process.env["CLIENT_SECRET"]
-                },
-                ...(refreshToken
-                    ? {
-                        refresh_token: refreshToken
-                    } : {
-                        code: process.env["CODE"],
-                        redirect_uri: process.env["REDIRECT_URI"]
-                    }
-                )
-            });
-
-            let authData = "";
-
-            const authReq = https.request({
-                hostname: "api.tumblr.com",
-                port: 443,
-                path: "/v2/oauth2/token",
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Content-Length": Buffer.byteLength(tokenData)
+        /* eslint-disable camelcase */
+        const tokenData = querystring.stringify({
+            ...{
+                client_id: process.env.CLIENT_ID,
+                client_secret: process.env.CLIENT_SECRET,
+                grant_type: refreshToken ? "refresh_token" : "authorization_code"
+            },
+            ...refreshToken
+                ? { refresh_token: refreshToken }
+                : {
+                    code: process.env.CODE,
+                    redirect_uri: process.env.REDIRECT_URI
                 }
-            }, (res) => {
-                if (res.statusCode !== 200) {
-                    reject(new Error(`${res.statusCode} ${res.statusMessage}`));
-                    return;
-                }
-
-                res.setEncoding("utf8");
-
-                res.on("data", (chunk) => {
-                    authData += chunk;
-                });
-
-                res.on("end", async () => {
-                    const token = JSON.parse(authData) as Partial<Token>;
-                    token.requested = Math.trunc(Date.now() / 1000);
-                    await fs.writeFile(this.tokenPath, JSON.stringify(token), { encoding: "utf-8" });
-                    resolve(token as Token);
-                });
-            });
-
-            authReq.on("error", (err) => {
-                reject(err);
-            });
-
-            authReq.on("timeout", () => {
-                authReq.destroy();
-            });
-
-            authReq.write(tokenData);
-            authReq.end();
         });
+        /* eslint-enable camelcase */
+
+        const authData = await https.post({
+            path: "/v2/oauth2/token"
+        }, tokenData);
+
+        const token = JSON.parse(authData) as Partial<Token>;
+        token.requested = Math.trunc(Date.now() / 1000);
+        await fs.writeFile(this.tokenPath, JSON.stringify(token), { encoding: "utf-8" });
+        return token as Token;
     }
 
-    private async fetchToken(): Promise<void> {
+    private async fetchToken(forceRefresh?: boolean): Promise<void> {
         try {
             if (!this.token) {
                 this.token = JSON.parse(await fs.readFile(this.tokenPath, { encoding: "utf-8" })) as Token;
             }
 
-            if (this.token.requested + this.token.expires_in < (Math.trunc(Date.now() / 1000) - 30)) {
-                this.token = await this.getNewToken(this.token?.refresh_token);
+            if (forceRefresh === true || this.token.requested + this.token.expires_in < Math.trunc(Date.now() / 1000) - 30) {
+                console.warn("\tToken expired, refreshing...");
+                this.token = await this.getNewToken(this.token.refresh_token);
             }
         } catch (ignoreErr) {
             await this.getNewToken();

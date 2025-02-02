@@ -1,8 +1,8 @@
-import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as https from "node:https";
 import * as path from "node:path";
 import * as querystring from "node:querystring";
+import * as timers from "node:timers";
 
 interface Token {
     access_token: string;
@@ -13,26 +13,21 @@ interface Token {
     scope: string;
 }
 
-interface Hash {
-    hash: string;
-}
-
-export type Hashed<T> = T & Hash;
-
 interface Response<T> {
     meta: {
         status: number;
         msg: string;
     };
-    response: Hashed<T>;
+    response: T;
 }
 
 
 interface ArraySupport<T> {
     totalKey: string;
     valuesKey: string;
-    keyIndex?: string;
-    process?: (startOffset: number, latest: Hashed<T>[]) => Promise<void>;
+    keyIndex: string;
+    keys: Set<string>;
+    process?: (latest: T[]) => Promise<void>;
 }
 
 export interface Blog {
@@ -118,6 +113,7 @@ type ArrayQueryParams = QueryParams & {
 export class Client {
     private readonly tokenPath: string;
     private token: Token | undefined = undefined;
+    private lastCall: number | undefined = undefined;
 
     public constructor(appPath: string) {
         this.tokenPath = path.join(appPath, "token.json");
@@ -125,7 +121,7 @@ export class Client {
 
     public async apiArrayCall<T extends Record<string, unknown>>(
         api: string, support: ArraySupport<T>, parameters?: QueryParams
-    ): Promise<Hashed<T>[]> {
+    ): Promise<T[]> {
         const newParams = { ...parameters ?? {} };
         if (!Object.hasOwn(newParams, "limit")) {
             newParams["limit"] = -1;
@@ -142,16 +138,24 @@ export class Client {
         return res;
     }
 
-    public async apiCall<T extends Record<string, unknown>>(api: string, parameters?: QueryParams): Promise<Hashed<T>> {
+    public async apiCall<T extends Record<string, unknown>>(api: string, parameters?: QueryParams): Promise<T> {
         await this.fetchToken();
 
-        return new Promise<Hashed<T>>((resolve, reject) => {
+        const current = Date.now();
+        if (this.lastCall && (current - this.lastCall) < 2000) {
+            await new Promise((resolve) => timers.setTimeout(resolve, current - this.lastCall!));
+        }
+        this.lastCall = current;
+
+        return new Promise<T>((resolve, reject) => {
             const params = querystring.stringify({
                 api_key: process.env["CLIENT_ID"],
                 ...(parameters ?? {})
             });
 
             let apiData = "";
+
+            console.debug(`calling API: /v2/${api}?${params}`);
 
             const apiReq = https.request({
                 hostname: "api.tumblr.com",
@@ -167,7 +171,7 @@ export class Client {
                     apiData += chunk;
                 });
 
-                res.on("end", () => {
+                res.on("end", async () => {
                     switch (res.statusCode) {
                         case 200:
                             if (apiData === "") {
@@ -176,7 +180,6 @@ export class Client {
                             }
 
                             const result = JSON.parse(apiData) as Response<T>;
-                            result.response.hash = crypto.createHash("sha1").update(apiData).digest("hex");
 
                             switch (result.meta.status) {
                                 case 200:
@@ -184,7 +187,15 @@ export class Client {
                                     break;
 
                                 case 401:
-                                    reject(new Error("Unauthorized"));
+                                    try {
+                                        await this.fetchToken();
+                                        timers.setImmediate(() => {
+                                            console.debug(`\ttrying new token`);
+                                            resolve(this.apiCall(api, parameters));
+                                        });
+                                    } catch (err) {
+                                        reject(err);
+                                    }
                                     break;
 
                                 default:
@@ -194,7 +205,22 @@ export class Client {
                             break;
 
                         case 401:
-                            reject(new Error("Unauthorized"));
+                            try {
+                                await this.fetchToken();
+                                timers.setImmediate(() => {
+                                    console.debug(`\ttrying new token`);
+                                    resolve(this.apiCall(api, parameters));
+                                });
+                            } catch (err) {
+                                reject(err);
+                            }
+                            break;
+
+                        case 429:
+                            timers.setTimeout(() => {
+                                console.debug(`\trate limit reached, retrying in 10 seconds...`);
+                                resolve(this.apiCall(api, parameters));
+                            }, 10000);
                             break;
 
                         default:
@@ -207,64 +233,56 @@ export class Client {
             apiReq.on("error", (err) => {
                 reject(err);
             });
+
+            apiReq.on("timeout", () => {
+                apiReq.destroy();
+
+                timers.setTimeout(() => {
+                    console.debug(`\ttimeout, retrying in 10 seconds...`);
+                    resolve(this.apiCall(api, parameters));
+                }, 10000);
+            });
+
             apiReq.end();
         });
     }
 
     private async doApiArrayCall<T extends Record<string, unknown>>(
-        api: string, prev: Hashed<T>[], support: ArraySupport<T>, globalParameters: ArrayQueryParams, localParameters: ArrayQueryParams
-    ): Promise<Hashed<T>[]> {
+        api: string, prev: T[], support: ArraySupport<T>, globalParameters: ArrayQueryParams, localParameters: ArrayQueryParams
+    ): Promise<T[]> {
         const data = await this.apiCall<Record<PropertyKey, unknown>>(api, localParameters);
 
         const total = data[support.totalKey] as number;
-        const values = data[support.valuesKey] as Hashed<T>[];
+        const values = (data[support.valuesKey] as T[]).filter((value) => !support.keys.has(value[support.keyIndex] as string));
+        for (const value of values) {
+            support.keys.add(value[support.keyIndex] as string);
+        }
 
         const newValues = [
             ...prev,
             ...values
         ];
 
-        let newData: Hashed<T>[] = [];
-
-        if (support.keyIndex === undefined) {
-            const filter = new Set(newValues);
-
-            newData = Array.from(filter.values());
-        } else {
-            const filter = new Map<unknown, Hashed<T>>();
-            for (const value of newValues) {
-                filter.set(value[support.keyIndex], value);
-            }
-
-            newData = Array.from(filter.values());
-        }
-
-        if (support.process) {
-            await support.process(
-                globalParameters.offset + prev.length,
-                newData.slice(prev.length)
-            );
-        }
+        await support.process?.(values);
 
         switch (globalParameters.limit) {
             case -1:
-                if (newData.length >= total) {
-                    return newData.slice(0, total);
+                if (newValues.length >= total) {
+                    return newValues.slice(0, total);
                 }
                 break;
 
             default:
-                if (globalParameters.limit <= newData.length) {
-                    return newData.slice(0, globalParameters.limit);
+                if (globalParameters.limit <= newValues.length) {
+                    return newValues.slice(0, globalParameters.limit);
                 }
                 break;
         }
 
         const newParams = { ...localParameters };
-        newParams.offset = globalParameters.offset + newData.length;
+        newParams.offset = globalParameters.offset + newValues.length;
         newParams.limit = 20;
-        const res = await this.doApiArrayCall(api, newData, support, globalParameters, newParams);
-        return res;
+        return this.doApiArrayCall(api, newValues, support, globalParameters, newParams);
     }
 
     private async getNewToken(refreshToken?: string): Promise<Token> {
@@ -320,8 +338,8 @@ export class Client {
                 reject(err);
             });
 
-            authReq.on('timeout', () => {
-                authReq.destroy(); // Abort the request on timeout
+            authReq.on("timeout", () => {
+                authReq.destroy();
             });
 
             authReq.write(tokenData);

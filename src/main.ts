@@ -1,42 +1,36 @@
 import * as fs from "node:fs/promises";
 import * as https from "node:https";
 import * as path from "node:path";
+import * as timers from "node:timers";
 import * as tumblr from "./tumblr.js";
 import * as url from "node:url";
 
+import { isEqual } from "lodash-es";
 import { createWriteStream } from "node:fs";
 
-class HttpError extends Error {
-    public constructor(message: string, public readonly statusCode?: number) {
-        super(message);
-        this.name = "HttpError";
-    }
+let equalPosts = 0;
 
-    public override toString(): string {
-        return `${this.name}: ${this.message}${this.statusCode ? ` (status code: ${this.statusCode})` : ""}`;
-    }
-}
-
-class HttpFileError extends HttpError {
-    public constructor(message: string, public override readonly statusCode?: number) {
-        super(message, statusCode);
-        this.name = "HttpFileError";
-    }
-}
-
+let fileRetries = 3;
 async function getFile(source: url.URL, outputFileName: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-        https.get(source, { headers: { "User-Agent": "TumblrSync/1.0.0" } }, (response) => {
+        const req = https.get(source, { headers: { "User-Agent": "TumblrSync/1.0.0" } }, async (response) => {
             const { statusCode } = response;
 
             if (statusCode === 302 && response.headers.location) {
                 resolve(getFile(new url.URL(response.headers.location), outputFileName));
                 return;
             } else if (statusCode !== 200) {
-                reject(new HttpFileError("Request failed", response.statusCode));
+                if (--fileRetries > 0) {
+                    await new Promise((resolve) => timers.setTimeout(resolve, 5000));
+                    resolve(getFile(source, outputFileName));
+                    return;
+                }
+
+                reject(new Error(`Request failed, ${response.statusCode}`));
                 return;
             }
 
+            fileRetries = 3;
             const file = createWriteStream(outputFileName);
             file.on("finish", () => {
                 file.close();
@@ -44,13 +38,31 @@ async function getFile(source: url.URL, outputFileName: string): Promise<void> {
             });
 
             response.pipe(file);
-        }).on("error", (err) => {
-            reject(new HttpFileError(err as unknown as string));
+        });
+
+        req.on("error", async (err) => {
+            if (--fileRetries > 0) {
+                await new Promise((resolve) => timers.setTimeout(resolve, 5000));
+                resolve(getFile(source, outputFileName));
+                return;
+            }
+
+            reject(err);
+        });
+
+        req.on("timeout", () => {
+            req.destroy();
+
+            if (--fileRetries > 0) {
+                resolve(getFile(source, outputFileName));
+            }
+
+            reject(new Error("Request timeout"));
         });
     });
 }
 
-async function storePosts(posts: tumblr.Hashed<tumblr.Post>[]): Promise<void> {
+async function storePosts(posts: tumblr.Post[]): Promise<void> {
     for (const post of posts) {
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
@@ -68,22 +80,26 @@ async function storePosts(posts: tumblr.Hashed<tumblr.Post>[]): Promise<void> {
 
         const tgtPostFile = path.join(tgtPath, `${post.id_string}.json`);
         try {
-            const oldPost = JSON.parse(await fs.readFile(tgtPostFile, { encoding: "utf-8" })) as tumblr.Hashed<tumblr.Post>;
-            if (oldPost.hash === post.hash) {
+            const existingPost = JSON.parse(await fs.readFile(tgtPostFile, { encoding: "utf-8" })) as tumblr.Post;
+            if (isEqual(existingPost, post)) {
+                console.warn(`Post ${post.id_string} already stored, skipping...`);
+                ++equalPosts;
+
+                if (equalPosts > 200) {
+                    console.warn("Too many equal posts, stopping...");
+                    process.exit(0);
+                }
+
                 continue;
             }
         } catch (ignoreErr) {
 
         }
 
-        process.stdout.write(`Storing post ${post.id_string}...\n`);
-        await fs.writeFile(
-            path.join(
-                tgtPath,
-                `${post.id_string}.json`
-            ),
-            JSON.stringify(post, null, 2)
-        );
+        equalPosts = 0;
+
+        console.info(`Storing post ${post.id_string}...`);
+        await fs.writeFile(tgtPostFile, JSON.stringify(post, null, 2));
 
         const mediaPath = path.join(tgtPath, post.id_string);
         const mkdirMedia = () => {
@@ -113,8 +129,7 @@ async function storePosts(posts: tumblr.Hashed<tumblr.Post>[]): Promise<void> {
 
                 const imgUrl = new url.URL(largest.url);
                 const imgFileName = path.basename(imgUrl.pathname);
-                process.stdout.write(`\t and image ${imgFileName}...\n`);
-
+                console.info(`\t and ${item.type} ${imgFileName}...`);
                 await getFile(new url.URL(largest.url), path.join(mediaPath, imgFileName));
             }
 
@@ -122,7 +137,7 @@ async function storePosts(posts: tumblr.Hashed<tumblr.Post>[]): Promise<void> {
                 mkdirMedia();
                 const mediaUrl = new url.URL(item.media.url);
                 const mediaFileName = path.basename(mediaUrl.pathname);
-                process.stdout.write(`\t and image ${mediaFileName}...\n`);
+                console.info(`\t and ${item.type} ${mediaFileName}...`);
                 await getFile(mediaUrl, path.join(mediaPath, mediaFileName));
             }
         };
@@ -137,7 +152,7 @@ async function storePosts(posts: tumblr.Hashed<tumblr.Post>[]): Promise<void> {
             }
         }
 
-        process.stdout.write("\n");
+        console.info();
     }
 }
 
@@ -157,28 +172,20 @@ try {
 
 const client = new tumblr.Client(process.env["BACKUP_DIR"]);
 
-let latestOffset = 0;
-
-try {
-    latestOffset = Math.max(parseInt(await fs.readFile(path.join(process.env["BACKUP_DIR"], "offset"), { encoding: "utf-8" })) - 20, 0);
-} catch (ignoreErr) {
-
-}
-
 await client.apiArrayCall<tumblr.Post>(
     `blog/${process.env["BLOG_NAME"]}/posts`,
     {
         totalKey: "total_posts",
         valuesKey: "posts",
         keyIndex: "id_string",
-        process: async (startOffset, newPosts) => {
-            await storePosts(newPosts);
-            await fs.writeFile(path.join(process.env["BACKUP_DIR"]!, "offset"), (startOffset + newPosts.length).toString());
+        keys: new Set<string>(),
+        process: async (newPosts) => {
+            return storePosts(newPosts);
         }
     },
     {
-        limit: 100,
-        offset: latestOffset,
-        npf: true
+        npf: true,
+        reblog_info: true,
+        notes_info: true
     }
 );

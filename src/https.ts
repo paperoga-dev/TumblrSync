@@ -38,8 +38,6 @@ async function doRequest(
             },
             ...options
         }, (res) => {
-            res.setEncoding("utf8");
-
             switch (res.statusCode) {
                 case 200:
                     if (outputFileName) {
@@ -59,6 +57,8 @@ async function doRequest(
                         });
                         return;
                     }
+
+                    res.setEncoding("utf8");
 
                     res.on("data", (chunk) => {
                         resData += chunk;

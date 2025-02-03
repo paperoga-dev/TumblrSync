@@ -47,10 +47,20 @@ async function doRequest(
                                 return;
                             }
 
+                            const fileSize = parseInt(res.headers["content-length"] ?? "0", 10);
+
                             const file = fs.createWriteStream(outputFileName);
                             file.on("finish", () => {
                                 file.close();
-                                resolve();
+
+                                fs.stat(outputFileName, (stErr, stats) => {
+                                    if (stErr || stats.size !== fileSize) {
+                                        retry("file size mismatch");
+                                        return;
+                                    }
+
+                                    resolve();
+                                });
                             });
 
                             res.pipe(file);

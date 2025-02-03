@@ -2,6 +2,7 @@
 import * as fs from "node:fs/promises";
 import * as https from "./https.js";
 import * as path from "node:path";
+import * as timers from "node:timers";
 import * as tumblr from "./tumblr.js";
 import * as url from "node:url";
 
@@ -22,8 +23,8 @@ function removeKeysDeep<T extends Record<string, unknown> | Record<string, unkno
 ): T {
     if (Array.isArray(obj)) {
         return obj.map((item: unknown) => typeof item === "object"
-            ? removeKeysDeep(item as Record<string, unknown>, keysToRemove)
-            : item as unknown) as T;
+            ? removeKeysDeep(item as T, keysToRemove)
+            : item) as T;
     } else if (typeof obj === "object") {
         // eslint-disable-next-line @typescript-eslint/no-for-in-array
         for (const key in obj) {
@@ -91,31 +92,45 @@ async function storePosts(posts: tumblr.Post[], forced: boolean): Promise<void> 
 
         const mediaPath = path.join(tgtPath, post.id_string);
         const backupMedia = async (item: tumblr.BackuppableItem): Promise<void> => {
-            if (item.type === "image") {
-                let largest: tumblr.MediaItem | undefined = undefined;
-                let largestArea = 0;
-                for (const img of item.media) {
-                    if ((img.width ?? 0) * (img.height ?? 0) > largestArea) {
-                        largest = img;
-                        largestArea = (img.width ?? 0) * (img.height ?? 0);
+            try {
+                if (item.type === "image") {
+                    let largest: tumblr.MediaItem | undefined = undefined;
+                    let largestArea = 0;
+                    for (const img of item.media) {
+                        if ((img.width ?? 0) * (img.height ?? 0) > largestArea) {
+                            largest = img;
+                            largestArea = (img.width ?? 0) * (img.height ?? 0);
+                        }
                     }
+
+                    if (!largest) {
+                        return;
+                    }
+
+                    const imgUrl = new url.URL(largest.url);
+                    const imgFileName = path.basename(imgUrl.pathname);
+                    console.info(`\t and ${item.type} ${imgFileName}...`);
+                    await https.getFile(new url.URL(largest.url), path.join(mediaPath, imgFileName));
                 }
 
-                if (!largest) {
+                if ((item.type === "video" || item.type === "audio") && item.provider === "tumblr") {
+                    const mediaUrl = new url.URL(item.media.url);
+                    const mediaFileName = path.basename(mediaUrl.pathname);
+                    console.info(`\t and ${item.type} ${mediaFileName}...`);
+                    await https.getFile(mediaUrl, path.join(mediaPath, mediaFileName));
+                }
+            } catch (err) {
+                if (err instanceof https.TokenError) {
+                    // Cannot happen, let's retry
+                    await new Promise((resolve) => {
+                        timers.setTimeout(resolve, 10000);
+                    });
+
+                    await backupMedia(item);
                     return;
                 }
 
-                const imgUrl = new url.URL(largest.url);
-                const imgFileName = path.basename(imgUrl.pathname);
-                console.info(`\t and ${item.type} ${imgFileName}...`);
-                await https.getFile(new url.URL(largest.url), path.join(mediaPath, imgFileName));
-            }
-
-            if ((item.type === "video" || item.type === "audio") && item.provider === "tumblr") {
-                const mediaUrl = new url.URL(item.media.url);
-                const mediaFileName = path.basename(mediaUrl.pathname);
-                console.info(`\t and ${item.type} ${mediaFileName}...`);
-                await https.getFile(mediaUrl, path.join(mediaPath, mediaFileName));
+                throw err;
             }
         };
 

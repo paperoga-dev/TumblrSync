@@ -16,8 +16,33 @@ class TooManyEqualPostsError extends Error {
     }
 }
 
-async function storePosts(posts: tumblr.Post[]): Promise<void> {
-    for (const post of posts) {
+
+function removeKeysDeep<T extends Record<string, unknown> | Record<string, unknown>[]>(
+    obj: T, keysToRemove: string[]
+): T {
+    if (Array.isArray(obj)) {
+        return obj.map((item: unknown) => typeof item === "object"
+            ? removeKeysDeep(item as Record<string, unknown>, keysToRemove)
+            : item as unknown) as T;
+    } else if (typeof obj === "object") {
+        // eslint-disable-next-line @typescript-eslint/no-for-in-array
+        for (const key in obj) {
+            if (keysToRemove.includes(key)) {
+                // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                delete obj[key];
+            } else if (typeof obj[key] === "object") {
+                obj[key] = removeKeysDeep(obj[key] as Record<string, unknown>, keysToRemove) as T[typeof key];
+            }
+        }
+    }
+
+    return obj;
+}
+
+async function storePosts(posts: tumblr.Post[], forced: boolean): Promise<void> {
+    for (let post of posts) {
+        post = removeKeysDeep(post, ["embed_iframe", "updated"]);
+
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
             process.env.BACKUP_DIR ?? "",
@@ -39,16 +64,24 @@ async function storePosts(posts: tumblr.Post[]): Promise<void> {
                 console.warn(`Post ${post.id_string} already stored, skipping...`);
                 ++equalPosts;
 
-                if (equalPosts > 200) {
+                if (!forced && equalPosts > 100) {
                     throw new TooManyEqualPostsError();
                 }
 
                 continue;
             } else {
                 console.warn(`Post ${post.id_string} has changed, updating...`);
-            }
-        } catch (ignoreErr) {
+                try {
+                    await fs.rm(`${tgtPostFile}.bak`);
+                } catch (ignoreErr) {
+                }
 
+                await fs.rename(tgtPostFile, `${tgtPostFile}.bak`);
+            }
+        } catch (err) {
+            if (err instanceof TooManyEqualPostsError) {
+                throw err;
+            }
         }
 
         equalPosts = 0;
@@ -122,7 +155,7 @@ try {
         {
             keyIndex: "id_string",
             keys: new Set<string>(),
-            process: async (newPosts): Promise<void> => storePosts(newPosts),
+            process: async (newPosts): Promise<void> => storePosts(newPosts, process.argv.includes("--force")),
             totalKey: "total_posts",
             valuesKey: "posts"
         },

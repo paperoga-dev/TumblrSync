@@ -230,7 +230,8 @@ export default [
     {
         files: ["**/*.mjs"],
         languageOptions: {
-            ecmaVersion: 2022
+            ecmaVersion: 2022,
+            sourceType: "module"
         },
         linterOptions: {
             reportUnusedDisableDirectives: "warn"
@@ -240,7 +241,11 @@ export default [
         },
         rules: {
             ...styleRules,
-            ...js.configs.all.rules
+            ...js.configs.all.rules,
+            "func-style": "off",
+            "no-console": "off",
+            "no-undef": "off",
+            "one-var": "off"
         }
     },
     {

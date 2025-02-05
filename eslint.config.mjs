@@ -36,6 +36,7 @@ const baseTsRules = {
             "caughtErrorsIgnorePattern": "^ignoreErr"
         }
     ],
+    "@typescript-eslint/parameter-properties": "off",
     "@typescript-eslint/prefer-readonly-parameter-types": "off",
     "@typescript-eslint/strict-boolean-expressions": [
         "error",
@@ -51,6 +52,10 @@ const baseTsRules = {
         }
     ],
     "func-style": "off",
+    "max-classes-per-file": [
+        "error",
+        2
+    ],
     "max-len": [
         "error",
         {

@@ -2,7 +2,6 @@
 import * as fs from "node:fs/promises";
 import * as https from "./https.js";
 import * as path from "node:path";
-import * as timers from "node:timers";
 import * as tumblr from "./tumblr.js";
 import * as url from "node:url";
 
@@ -16,7 +15,6 @@ class TooManyEqualPostsError extends Error {
         this.name = "TooManyEqualPostsError";
     }
 }
-
 
 function removeKeysDeep<T extends Record<string, unknown> | Record<string, unknown>[]>(
     obj: T, keysToRemove: string[]
@@ -40,7 +38,7 @@ function removeKeysDeep<T extends Record<string, unknown> | Record<string, unkno
     return obj;
 }
 
-async function storePosts(posts: tumblr.Post[], forced: boolean): Promise<void> {
+async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: boolean): Promise<void> {
     for (let post of posts) {
         post = removeKeysDeep(post, ["embed_iframe", "updated"]);
 
@@ -92,45 +90,31 @@ async function storePosts(posts: tumblr.Post[], forced: boolean): Promise<void> 
 
         const mediaPath = path.join(tgtPath, post.id_string);
         const backupMedia = async (item: tumblr.BackuppableItem): Promise<void> => {
-            try {
-                if (item.type === "image") {
-                    let largest: tumblr.MediaItem | undefined = undefined;
-                    let largestArea = 0;
-                    for (const img of item.media) {
-                        if ((img.width ?? 0) * (img.height ?? 0) > largestArea) {
-                            largest = img;
-                            largestArea = (img.width ?? 0) * (img.height ?? 0);
-                        }
+            if (item.type === "image") {
+                let largest: tumblr.MediaItem | undefined = undefined;
+                let largestArea = 0;
+                for (const img of item.media) {
+                    if ((img.width ?? 0) * (img.height ?? 0) > largestArea) {
+                        largest = img;
+                        largestArea = (img.width ?? 0) * (img.height ?? 0);
                     }
-
-                    if (!largest) {
-                        return;
-                    }
-
-                    const imgUrl = new url.URL(largest.url);
-                    const imgFileName = path.basename(imgUrl.pathname);
-                    console.info(`\t and ${item.type} ${imgFileName}...`);
-                    await https.getFile(new url.URL(largest.url), path.join(mediaPath, imgFileName));
                 }
 
-                if ((item.type === "video" || item.type === "audio") && item.provider === "tumblr") {
-                    const mediaUrl = new url.URL(item.media.url);
-                    const mediaFileName = path.basename(mediaUrl.pathname);
-                    console.info(`\t and ${item.type} ${mediaFileName}...`);
-                    await https.getFile(mediaUrl, path.join(mediaPath, mediaFileName));
-                }
-            } catch (err) {
-                if (err instanceof https.TokenError) {
-                    // Cannot happen, let's retry
-                    await new Promise((resolve) => {
-                        timers.setTimeout(resolve, 10000);
-                    });
-
-                    await backupMedia(item);
+                if (!largest) {
                     return;
                 }
 
-                throw err;
+                const imgUrl = new url.URL(largest.url);
+                const imgFileName = path.basename(imgUrl.pathname);
+                console.info(`\t and ${item.type} ${imgFileName}...`);
+                await handler.getFile(new url.URL(largest.url), path.join(mediaPath, imgFileName));
+            }
+
+            if ((item.type === "video" || item.type === "audio") && item.provider === "tumblr") {
+                const mediaUrl = new url.URL(item.media.url);
+                const mediaFileName = path.basename(mediaUrl.pathname);
+                console.info(`\t and ${item.type} ${mediaFileName}...`);
+                await handler.getFile(mediaUrl, path.join(mediaPath, mediaFileName));
             }
         };
 
@@ -162,7 +146,8 @@ try {
 
 }
 
-const client = new tumblr.Client(process.env.BACKUP_DIR);
+const handler = new https.Handler(process.env.BACKUP_DIR);
+const client = new tumblr.Client(handler);
 
 try {
     await client.apiArrayCall<tumblr.Post>(
@@ -170,7 +155,7 @@ try {
         {
             keyIndex: "id_string",
             keys: new Set<string>(),
-            process: async (newPosts): Promise<void> => storePosts(newPosts, process.argv.includes("--force")),
+            process: async (newPosts): Promise<void> => storePosts(handler, newPosts, process.argv.includes("--force")),
             totalKey: "total_posts",
             valuesKey: "posts"
         },

@@ -45,6 +45,7 @@ async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: 
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
             process.env.BACKUP_DIR ?? "",
+            process.env.BLOG_NAME ?? "",
             when.getFullYear().toString(),
             (when.getMonth() + 1).toString().padStart(2, "0"),
             when.getDate().toString().padStart(2, "0")
@@ -141,7 +142,7 @@ if (!process.env.BLOG_NAME) {
 }
 
 try {
-    await fs.mkdir(process.env.BACKUP_DIR, { recursive: true });
+    await fs.mkdir(path.join(process.env.BACKUP_DIR, process.env.BLOG_NAME), { recursive: true });
 } catch (ignoreErr) {
 
 }

@@ -1,5 +1,7 @@
 # TumblrSync
 
+![Integration](https://github.com/paperoga-dev/TumblrSync/actions/workflows/node.js.yml/badge.svg?event=push)
+
 TumblrSync is a node tool that can perform a full backup of a Tumblr blog. It saves the whole content using a blog/year/month/day directory pattern, in each of them a full JSON dump of the tumblr post is saved and, if it contains media, a separate subfolder with the same post ID hosts it.
 
 To use it, you need Node 22.x installed on your system (could work with 20.x, though).

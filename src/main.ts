@@ -5,7 +5,29 @@ import * as path from "node:path";
 import * as tumblr from "./tumblr.js";
 import * as url from "node:url";
 
+import { hideBin } from "yargs/helpers";
 import { isEqual } from "lodash-es";
+import yargs from "yargs";
+
+const argv = await yargs(hideBin(process.argv))
+    .option("blog", {
+        demandOption: true,
+        describe: "The name of the blog",
+        type: "string"
+    })
+    .option("folder", {
+        demandOption: true,
+        describe: "The folder path",
+        type: "string"
+    })
+    .option("force", {
+        default: false,
+        describe: "Force the operation",
+        type: "boolean"
+    })
+    .version(false)
+    .help()
+    .argv;
 
 let equalPosts = 0;
 
@@ -44,8 +66,8 @@ async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: 
 
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
-            process.env.BACKUP_DIR ?? "",
-            process.env.BLOG_NAME ?? "",
+            argv.folder,
+            argv.blog,
             when.getFullYear().toString(),
             (when.getMonth() + 1).toString().padStart(2, "0"),
             when.getDate().toString().padStart(2, "0")
@@ -133,26 +155,18 @@ async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: 
     }
 }
 
-if (!process.env.BACKUP_DIR) {
-    throw new Error("BACKUP_DIR not set");
-}
-
-if (!process.env.BLOG_NAME) {
-    throw new Error("BLOG_NAME not set");
-}
-
 try {
-    await fs.mkdir(path.join(process.env.BACKUP_DIR, process.env.BLOG_NAME), { recursive: true });
+    await fs.mkdir(path.join(argv.folder, argv.blog), { recursive: true });
 } catch (ignoreErr) {
 
 }
 
-const handler = new https.Handler(process.env.BACKUP_DIR);
+const handler = new https.Handler(argv.folder);
 const client = new tumblr.Client(handler);
 
 try {
     await client.apiArrayCall<tumblr.Post>(
-        `blog/${process.env.BLOG_NAME}/posts`,
+        `blog/${argv.blog}/posts`,
         {
             keyIndex: "id_string",
             keys: new Set<string>(),

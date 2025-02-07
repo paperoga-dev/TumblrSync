@@ -1,4 +1,4 @@
-/* eslint-disable one-var */
+/* eslint-disable max-lines */
 /* eslint-disable id-length */
 /* eslint-disable @stylistic/quote-props */
 /* eslint-disable no-magic-numbers */
@@ -6,6 +6,7 @@ import globals from "globals";
 import js from "@eslint/js";
 import json from "@eslint/json";
 import markdown from "@eslint/markdown";
+import mocha from "eslint-plugin-mocha";
 import node from "eslint-plugin-n";
 import stylistic from "@stylistic/eslint-plugin";
 import ts from "@typescript-eslint/eslint-plugin";
@@ -49,6 +50,13 @@ const baseTsRules = {
         "error",
         {
             "considerDefaultExhaustiveForUnions": true
+        }
+    ],
+    "capitalized-comments": [
+        "error",
+        "always",
+        {
+            "ignorePattern": "c8"
         }
     ],
     "func-style": "off",
@@ -210,7 +218,7 @@ export default [
             parser: tsParser,
             parserOptions: {
                 project: "./tsconfig.json",
-                tsconfigRootDir: "."
+                tsconfigRootDir: "src"
             }
         },
         linterOptions: {
@@ -228,7 +236,53 @@ export default [
         }
     },
     {
-        files: ["**/*.mjs"],
+        files: ["test/**/*.test.mjs"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            globals: {
+                ...globals.mocha,
+                ...globals.node,
+                Mocha: "readonly",
+                NodeJS: "readonly"
+            },
+            sourceType: "module"
+        },
+        linterOptions: {
+            reportUnusedDisableDirectives: "warn"
+        },
+        plugins: {
+            "@stylistic": stylistic,
+            mocha,
+            n: node
+        },
+        rules: {
+            ...js.configs.all.rules,
+            ...styleRules,
+            ...nodeRules,
+            ...mocha.configs.flat.all.rules,
+            "func-style": "off",
+            "id-length": "off",
+            "max-lines": "off",
+            "max-lines-per-function": "off",
+            "max-statements": "off",
+            "mocha/no-hooks": "off",
+            "mocha/no-mocha-arrows": "off",
+            "mocha/no-synchronous-tests": "off",
+            "mocha/valid-test-description": "off",
+            "n/no-unpublished-import": "off",
+            "no-console": "off",
+            "no-empty": "off",
+            "no-empty-function": "off",
+            "no-magic-numbers": "off",
+            "no-ternary": "off",
+            "no-undef-init": "off",
+            "no-undefined": "off",
+            "no-unused-vars": "off",
+            "one-var": "off"
+        }
+    },
+    {
+        files: ["*.mjs"],
         languageOptions: {
             ecmaVersion: 2022,
             sourceType: "module"

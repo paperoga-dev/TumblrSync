@@ -1,0 +1,17 @@
+{
+  "all": true,
+  "include": [
+    "**/dist/**"
+  ],
+  "exclude": [
+    "**/src/**",
+    "**/node_modules/**",
+    "**/tests/**"
+  ],
+  "reporter": [
+    "html",
+    "text",
+    "text-summary",
+    "json-summary"
+  ]
+}

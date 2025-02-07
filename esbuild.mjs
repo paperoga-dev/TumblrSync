@@ -20,7 +20,7 @@ async function main() {
         platform: "node",
         sourcemap: !production,
         sourcesContent: !production,
-        tsconfig: "tsconfig.json",
+        tsconfig: "src/tsconfig.json",
         write: true
     });
 

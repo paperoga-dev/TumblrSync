@@ -188,6 +188,17 @@ export class Handler {
 
                                 const fileSize = parseInt(res.headers["content-length"] ?? "0", 10);
 
+                                try {
+                                    const stat = fs.statSync(outputFileName);
+                                    if (stat.size === fileSize) {
+                                        console.warn(`\tFile ${outputFileName} already exists, skipping ...`);
+                                        res.destroy();
+                                        resolve();
+                                        return;
+                                    }
+                                } catch (ignoreErr) {
+                                }
+
                                 const file = fs.createWriteStream(outputFileName);
                                 file.on("finish", () => {
                                     file.close();

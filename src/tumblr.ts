@@ -162,11 +162,13 @@ export class Client {
                 }
                 break;
 
+            /* c8 ignore start */
             default:
                 if (globalParameters.limit <= newValues.length) {
                     return newValues.slice(0, globalParameters.limit);
                 }
                 break;
+            /* c8 ignore stop */
         }
 
         const newParams = { ...localParameters };

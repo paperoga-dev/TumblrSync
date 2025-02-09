@@ -26,8 +26,15 @@ const argv = await yargs(hideBin(process.argv))
         type: "boolean"
     })
     .version(false)
+    .fail((msg, err) => {
+        if (msg) {
+            throw new Error(msg);
+        } else {
+            throw err;
+        }
+    })
     .help()
-    .argv;
+    .parse();
 
 let equalPosts = 0;
 
@@ -36,6 +43,16 @@ class TooManyEqualPostsError extends Error {
         super("Too many equal posts, stopping...");
         this.name = "TooManyEqualPostsError";
     }
+}
+
+async function makeDir(tgtPath: string): Promise<void> {
+    try {
+        await fs.mkdir(tgtPath, { recursive: true });
+    /* c8 ignore start */
+    } catch (ignoreErr) {
+
+    }
+    /* c8 ignore stop */
 }
 
 function removeKeysDeep<T extends Record<string, unknown> | Record<string, unknown>[]>(
@@ -73,11 +90,7 @@ async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: 
             when.getDate().toString().padStart(2, "0")
         );
 
-        try {
-            await fs.mkdir(tgtPath, { recursive: true });
-        } catch (ignoreErr) {
-
-        }
+        await makeDir(tgtPath);
 
         const tgtPostFile = path.join(tgtPath, `${post.id_string}.json`);
         try {
@@ -155,11 +168,7 @@ async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: 
     }
 }
 
-try {
-    await fs.mkdir(path.join(argv.folder, argv.blog), { recursive: true });
-} catch (ignoreErr) {
-
-}
+await makeDir(path.join(argv.folder, argv.blog));
 
 const handler = new https.Handler(argv.folder);
 const client = new tumblr.Client(handler);

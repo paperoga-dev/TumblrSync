@@ -7,7 +7,31 @@
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"]
+      "runtimeArgs": [
+        "start",
+        "--",
+        "--blog",
+        "my_blog",
+        "--folder",
+        "my_folder"
+      ]
+    },
+    {
+      "name": "Test via npm",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "mocha",
+      "runtimeArgs": [
+        "--jobs", "1",
+        "--check-leaks",
+        "--timeout", "999999",
+        "--enable-source-maps",
+        "test/main.test.mjs"
+      ],
+      "env": {
+        "RUNNER_TEMP": "${workspaceFolder}/.tmp"
+      }
     }
   ]
 }

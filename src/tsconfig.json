@@ -4,7 +4,7 @@
       "module": "ESNext",
       "moduleResolution": "node",
       "strict": true,
-      "outDir": "./dist",
+      "outDir": "../dist",
       "sourceMap": true,
       "emitDecoratorMetadata": true,
       "experimentalDecorators": true,
@@ -24,10 +24,5 @@
       "skipLibCheck": true,
       "forceConsistentCasingInFileNames": true,
       "resolveJsonModule": true
-    },
-    "exclude": [
-      "node_modules",
-      "dist",
-      "eslint.config.mjs"
-    ]
+    }
   }

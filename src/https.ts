@@ -164,10 +164,10 @@ export class Handler {
             let resData = "";
 
             const retry = (msg: string): void => {
-                console.error(`\t${msg}, retrying in 10 seconds ...`);
+                console.error(`\t${msg}, retrying in 5 seconds ...`);
                 timers.setTimeout(() => {
                     resolve(this.doRequest(options, failures - 1, outputFileName));
-                }, 10000);
+                }, 5000);
             };
 
             const req = https.request({
@@ -181,10 +181,12 @@ export class Handler {
                     case 200:
                         if (outputFileName) {
                             fs.mkdir(path.dirname(outputFileName), { recursive: true }, (err) => {
+                                /* c8 ignore start */
                                 if (err) {
                                     reject(err);
                                     return;
                                 }
+                                /* c8 ignore stop */
 
                                 const fileSize = parseInt(res.headers["content-length"] ?? "0", 10);
 

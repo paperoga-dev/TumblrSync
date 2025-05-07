@@ -10,8 +10,6 @@
       "runtimeArgs": [
         "start",
         "--",
-        "--blog",
-        "my_blog",
         "--folder",
         "my_folder"
       ]

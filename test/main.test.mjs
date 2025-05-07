@@ -303,20 +303,22 @@ const httpsMock = {
                                                     status: 200
                                                 },
                                                 response: {
-                                                    blogs: [
-                                                        {
-                                                            description: "Blog description",
-                                                            followers: 200,
-                                                            name: "blog_name",
-                                                            posts: 200,
-                                                            title: "Blog Title",
-                                                            updated: 1234567890,
-                                                            url: "https://blog_name.tumblr.com/"
-                                                        }
-                                                    ],
-                                                    following: 30,
-                                                    likes: 100,
-                                                    name: "me"
+                                                    user: {
+                                                        blogs: [
+                                                            {
+                                                                description: "Blog description",
+                                                                followers: 200,
+                                                                name: "blog_name",
+                                                                posts: 200,
+                                                                title: "Blog Title",
+                                                                updated: 1234567890,
+                                                                url: "https://blog_name.tumblr.com/"
+                                                            }
+                                                        ],
+                                                        following: 30,
+                                                        likes: 100,
+                                                        name: "me"
+                                                    }
                                                 }
                                             };
 

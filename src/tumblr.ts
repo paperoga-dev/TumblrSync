@@ -28,7 +28,6 @@ export interface Blog {
 }
 
 export interface User {
-    [key: string]: unknown;
     name: string;
     likes: number;
     following: number;
@@ -36,6 +35,7 @@ export interface User {
 }
 
 export interface Info {
+    [key: string]: unknown;
     user: User;
 }
 

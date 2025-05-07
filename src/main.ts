@@ -168,10 +168,10 @@ await makeDir(argv.folder);
 const handler = new https.Handler(argv.folder);
 const client = new tumblr.Client(handler);
 
-const userData = await client.apiCall<tumblr.User>("user/info");
+const userData = await client.apiCall<tumblr.Info>("user/info");
 let wasAnError = false;
 
-for (const blog of userData.blogs) {
+for (const blog of userData.user.blogs) {
     try {
         await makeDir(path.join(argv.folder, blog.name));
 

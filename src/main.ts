@@ -10,11 +10,6 @@ import { isEqual } from "lodash-es";
 import yargs from "yargs";
 
 const argv = await yargs(hideBin(process.argv))
-    .option("blog", {
-        demandOption: true,
-        describe: "The name of the blog",
-        type: "string"
-    })
     .option("folder", {
         demandOption: true,
         describe: "The folder path",
@@ -77,14 +72,14 @@ function removeKeysDeep<T extends Record<string, unknown> | Record<string, unkno
     return obj;
 }
 
-async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: boolean): Promise<void> {
+async function storePosts(blogName: string, handler: https.Handler, posts: tumblr.Post[], forced: boolean): Promise<void> {
     for (let post of posts) {
         post = removeKeysDeep(post, ["embed_iframe", "updated"]);
 
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
             argv.folder,
-            argv.blog,
+            blogName,
             when.getFullYear().toString(),
             (when.getMonth() + 1).toString().padStart(2, "0"),
             when.getDate().toString().padStart(2, "0")
@@ -168,33 +163,46 @@ async function storePosts(handler: https.Handler, posts: tumblr.Post[], forced: 
     }
 }
 
-await makeDir(path.join(argv.folder, argv.blog));
+await makeDir(argv.folder);
 
 const handler = new https.Handler(argv.folder);
 const client = new tumblr.Client(handler);
 
-try {
-    await client.apiArrayCall<tumblr.Post>(
-        `blog/${argv.blog}/posts`,
-        {
-            keyIndex: "id_string",
-            keys: new Set<string>(),
-            process: async (newPosts): Promise<void> => storePosts(handler, newPosts, process.argv.includes("--force")),
-            totalKey: "total_posts",
-            valuesKey: "posts"
-        },
-        {
-            /* eslint-disable camelcase */
-            notes_info: true,
-            npf: true,
-            reblog_info: true
-            /* eslint-enable camelcase */
+const userData = await client.apiCall<tumblr.User>("user/info");
+let wasAnError = false;
+
+for (const blog of userData.blogs) {
+    try {
+        await makeDir(path.join(argv.folder, blog.name));
+
+        await client.apiArrayCall<tumblr.Post>(
+            `blog/${blog.name}/posts`,
+            {
+                keyIndex: "id_string",
+                keys: new Set<string>(),
+                process: async (newPosts): Promise<void> =>
+                    storePosts(blog.name, handler, newPosts, process.argv.includes("--force")),
+                totalKey: "total_posts",
+                valuesKey: "posts"
+            },
+            {
+                /* eslint-disable camelcase */
+                notes_info: true,
+                npf: true,
+                reblog_info: true
+                /* eslint-enable camelcase */
+            }
+        );
+    } catch (err) {
+        if (err instanceof TooManyEqualPostsError) {
+            console.warn(err.message);
+        } else {
+            wasAnError = true;
+            console.error((err as Error).message);
         }
-    );
-} catch (err) {
-    if (err instanceof TooManyEqualPostsError) {
-        console.warn(err.message);
-    } else {
-        throw err;
     }
+}
+
+if (wasAnError) {
+    throw new Error("There were errors during the backup process");
 }

@@ -286,6 +286,71 @@ const httpsMock = {
                     }
                 };
 
+            case options.path.startsWith("/v2/user/info"): {
+                requestCalls.push(options.path);
+                return {
+                    destroy: () => {},
+
+                    end: () => {
+                        timers.setTimeout(() => {
+                            callback({
+                                on: (event, respCallback) => {
+                                    switch (event) {
+                                        case "data": {
+                                            const lclRespData = {
+                                                meta: {
+                                                    msg: "OK",
+                                                    status: 200
+                                                },
+                                                response: {
+                                                    blogs: [
+                                                        {
+                                                            description: "Blog description",
+                                                            followers: 200,
+                                                            name: "blog_name",
+                                                            posts: 200,
+                                                            title: "Blog Title",
+                                                            updated: 1234567890,
+                                                            url: "https://blog_name.tumblr.com/"
+                                                        }
+                                                    ],
+                                                    following: 30,
+                                                    likes: 100,
+                                                    name: "me"
+                                                }
+                                            };
+
+                                            respCallback(JSON.stringify(lclRespData));
+                                            return;
+                                        }
+
+                                        case "end":
+                                            respCallback();
+                                            break;
+
+                                        default:
+                                            break;
+                                    }
+                                },
+
+                                setEncoding: (value) => {},
+
+                                statusCode: 200
+                            });
+                        }, 1000);
+                    },
+
+                    on: (event, respCallback) => {
+                    },
+
+                    setTimeout: (timeout) => {
+                    },
+
+                    write: (data) => {
+                    }
+                };
+            }
+
             case options.path.startsWith("/v2/blog/blog_name/posts?api_key=my_client_id&notes_info=true&npf=true&reblog_info=true"): {
                 requestCalls.push(options.path);
 
@@ -452,7 +517,6 @@ const httpsMock = {
 td.replaceEsm("node:https", httpsMock);
 
 import { expect } from "chai";
-import { request } from "node:http";
 
 function importModule() {
     return import(`../dist/main.js?version=${Date.now()}`);
@@ -475,7 +539,6 @@ describe("tests", () => {
 
         process.argv = [
             "node", "main.js",
-            "--blog", "blog_name",
             "--folder", path.join(process.env.RUNNER_TEMP ?? "", "folder_name")
         ];
     });
@@ -486,7 +549,7 @@ describe("tests", () => {
             await importModule();
             expect.fail("this must throw");
         } catch (err) {
-            expect(err.message).to.be.equal("Missing required arguments: blog, folder");
+            expect(err.message).to.be.equal("Missing required argument: folder");
         }
     });
 
@@ -661,7 +724,7 @@ describe("tests", () => {
         writtenData = "";
 
         await importModule();
-        expect(requestCalls.length).to.be.equal(6);
+        expect(requestCalls.length).to.be.equal(7);
     });
 
     it("always full backup in forced mode", async () => {
@@ -670,7 +733,7 @@ describe("tests", () => {
         process.argv.push("--force");
 
         await importModule();
-        expect(requestCalls.length).to.be.equal(10);
+        expect(requestCalls.length).to.be.equal(11);
     });
 
     describe("network failures", () => {
@@ -742,7 +805,7 @@ describe("tests", () => {
                 await importModule();
                 expect.fail("this must throw");
             } catch (err) {
-                expect(err.message).to.be.equal("Request failed");
+                expect(err.message).to.be.equal("There were errors during the backup process");
             }
         });
 
@@ -751,8 +814,8 @@ describe("tests", () => {
 
             await importModule();
 
-            expect(requestCalls.length).to.be.equal(2);
-            expect(requestCalls[0]).to.be.equal(requestCalls[1]);
+            expect(requestCalls.length).to.be.equal(3);
+            expect(requestCalls[1]).to.be.equal(requestCalls[2]);
         });
 
         it("post request timeout", async () => {
@@ -760,8 +823,8 @@ describe("tests", () => {
 
             await importModule();
 
-            expect(requestCalls.length).to.be.equal(2);
-            expect(requestCalls[0]).to.be.equal(requestCalls[1]);
+            expect(requestCalls.length).to.be.equal(3);
+            expect(requestCalls[1]).to.be.equal(requestCalls[2]);
         });
 
         it("post request status code error", async () => {
@@ -769,8 +832,8 @@ describe("tests", () => {
 
             await importModule();
 
-            expect(requestCalls.length).to.be.equal(2);
-            expect(requestCalls[0]).to.be.equal(requestCalls[1]);
+            expect(requestCalls.length).to.be.equal(3);
+            expect(requestCalls[1]).to.be.equal(requestCalls[2]);
         });
 
         it("post request unauthorized error", async () => {
@@ -778,8 +841,8 @@ describe("tests", () => {
 
             await importModule();
 
-            expect(requestCalls.length).to.be.equal(2);
-            expect(requestCalls[0]).to.be.equal(requestCalls[1]);
+            expect(requestCalls.length).to.be.equal(3);
+            expect(requestCalls[1]).to.be.equal(requestCalls[2]);
         });
 
         it("post request empty response", async () => {
@@ -787,8 +850,8 @@ describe("tests", () => {
 
             await importModule();
 
-            expect(requestCalls.length).to.be.equal(2);
-            expect(requestCalls[0]).to.be.equal(requestCalls[1]);
+            expect(requestCalls.length).to.be.equal(3);
+            expect(requestCalls[1]).to.be.equal(requestCalls[2]);
         });
 
         it("post media download failure", async () => {

@@ -28,6 +28,7 @@ export interface Blog {
 }
 
 export interface User {
+    [key: string]: unknown;
     name: string;
     likes: number;
     following: number;

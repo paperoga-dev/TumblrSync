@@ -175,6 +175,7 @@ for (const blog of userData.user.blogs) {
     try {
         await makeDir(path.join(argv.folder, blog.name));
 
+        equalPosts = 0;
         await client.apiArrayCall<tumblr.Post>(
             `blog/${blog.name}/posts`,
             {

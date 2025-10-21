@@ -84,12 +84,18 @@ interface TrailItem {
     content: BackuppableItem[];
 }
 
+interface Note {
+    [key: string]: unknown;
+    type: string;
+}
+
 export interface Post {
     [key: string]: unknown;
     id_string: string;
     timestamp: number;
     content: BackuppableItem[];
     trail: TrailItem[];
+    notes?: Note[];
 }
 
 type QueryParams = Record<string, number | string | boolean>;

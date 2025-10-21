@@ -75,6 +75,9 @@ function removeKeysDeep<T extends Record<string, unknown> | Record<string, unkno
 async function storePosts(blogName: string, handler: https.Handler, posts: tumblr.Post[], forced: boolean): Promise<void> {
     for (let post of posts) {
         post = removeKeysDeep(post, ["embed_iframe", "updated"]);
+        if (post.notes) {
+            post.notes = post.notes.filter(note => note.type !== "like");
+        }
 
         const when = new Date(post.timestamp * 1000);
         const tgtPath = path.join(
@@ -90,6 +93,9 @@ async function storePosts(blogName: string, handler: https.Handler, posts: tumbl
         const tgtPostFile = path.join(tgtPath, `${post.id_string}.json`);
         try {
             const existingPost = JSON.parse(await fs.readFile(tgtPostFile, { encoding: "utf-8" })) as tumblr.Post;
+            if (existingPost.notes) {
+                existingPost.notes = existingPost.notes.filter(note => note.type !== "like");
+            }
             if (isEqual(existingPost, post)) {
                 console.warn(`Post ${post.id_string} already stored, skipping...`);
                 ++equalPosts;

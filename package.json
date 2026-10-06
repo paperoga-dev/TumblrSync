@@ -1,7 +1,7 @@
 {
   "name": "tumblrsync",
   "displayName": "HappyCode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Keeps a local Tumblr copy of the blog",
   "main": "dist/main.js",
   "type": "module",

@@ -161,13 +161,25 @@ export class Handler {
         const token = await this.getToken();
 
         return new Promise<void | string>((resolve, reject) => {
-            let resData = "";
+            let settled = false;
 
             const retry = (msg: string): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
                 console.error(`\t${msg}, retrying in 5 seconds ...`);
                 timers.setTimeout(() => {
                     resolve(this.doRequest(options, failures - 1, outputFileName));
                 }, 5000);
+            };
+
+            const fail = (err: Error): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                reject(err);
             };
 
             const req = https.request({
@@ -178,7 +190,9 @@ export class Handler {
                 ...options
             }, (res) => {
                 switch (res.statusCode) {
-                    case 200:
+                    case 200: {
+                        let resData = "";
+
                         if (outputFileName) {
                             fs.mkdir(path.dirname(outputFileName), { recursive: true }, (err) => {
                                 /* c8 ignore start */
@@ -232,17 +246,34 @@ export class Handler {
                                 return;
                             }
 
-                            resolve(resData);
+                            timers.setTimeout(() => {
+                                if (!settled) {
+                                    settled = true;
+                                    resolve(resData);
+                                }
+                            }, 500);
                         });
+                    }
                         break;
 
                     case 401:
-                        timers.setTimeout(() => {
-                            resolve(this.doRequest(options, failures - 1, outputFileName));
-                        }, 10000);
+                    case 429:
+                        req.destroy();
+                        fail(new Error(`cannot continue: ${res.statusCode}`));
+                        break;
+
+                    case 403:
+                        req.destroy();
+                        fail(new Error(`no access: ${res.statusCode}`));
+                        break;
+
+                    case 404:
+                        req.destroy();
+                        fail(new Error("resource not found"));
                         break;
 
                     default:
+                        req.destroy();
                         retry(`response error, ${res.statusCode}`);
                         break;
                 }

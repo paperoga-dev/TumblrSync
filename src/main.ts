@@ -50,6 +50,44 @@ async function makeDir(tgtPath: string): Promise<void> {
     /* c8 ignore stop */
 }
 
+interface Diff {
+    path: string;
+    old: unknown;
+    new: unknown;
+}
+
+function flattenLeaves(value: unknown, prefix: string, into: Map<string, unknown>): void {
+    if (value !== null && typeof value === "object") {
+        const entries = Array.isArray(value)
+            ? value.map((item, index) => [index.toString(), item] as const)
+            : Object.entries(value as Record<string, unknown>);
+
+        for (const [key, child] of entries) {
+            flattenLeaves(child, prefix === "" ? key : `${prefix}.${key}`, into);
+        }
+    } else {
+        into.set(prefix, value);
+    }
+}
+
+function computeDiff(oldPost: unknown, newPost: unknown): Diff[] {
+    const oldLeaves = new Map<string, unknown>();
+    const newLeaves = new Map<string, unknown>();
+    flattenLeaves(oldPost, "", oldLeaves);
+    flattenLeaves(newPost, "", newLeaves);
+
+    const diffs: Diff[] = [];
+    for (const keyPath of new Set([...oldLeaves.keys(), ...newLeaves.keys()])) {
+        const oldValue = oldLeaves.get(keyPath);
+        const newValue = newLeaves.get(keyPath);
+        if (!isEqual(oldValue, newValue)) {
+            diffs.push({ new: newValue, old: oldValue, path: keyPath });
+        }
+    }
+
+    return diffs;
+}
+
 function removeKeysDeep<T extends Record<string, unknown> | Record<string, unknown>[]>(
     obj: T, keysToRemove: string[]
 ): T {
@@ -113,6 +151,9 @@ async function storePosts(blogName: string, handler: https.Handler, posts: tumbl
                 }
 
                 await fs.rename(tgtPostFile, `${tgtPostFile}.bak`);
+
+                const diffs = computeDiff(existingPost, post);
+                await fs.writeFile(`${tgtPostFile}.diff`, JSON.stringify(diffs, null, 2));
             }
         } catch (err) {
             if (err instanceof TooManyEqualPostsError) {

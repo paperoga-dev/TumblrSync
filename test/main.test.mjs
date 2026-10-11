@@ -353,7 +353,7 @@ const httpsMock = {
                 };
             }
 
-            case options.path.startsWith("/v2/blog/blog_name/posts?api_key=my_client_id&notes_info=true&npf=true&reblog_info=true"): {
+            case options.path.startsWith("/v2/blog/blog_name/posts?api_key=my_client_id&notes_info=false&npf=true&reblog_info=true"): {
                 requestCalls.push(options.path);
 
                 return {

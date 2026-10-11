@@ -232,7 +232,7 @@ for (const blog of userData.user.blogs) {
             },
             {
                 /* eslint-disable camelcase */
-                notes_info: true,
+                notes_info: false,
                 npf: true,
                 reblog_info: true
                 /* eslint-enable camelcase */

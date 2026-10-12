@@ -16,6 +16,7 @@ interface Token {
 
 export class Handler {
     private static readonly MAX_RETRIES = 5;
+    private forceTokenRefresh = false;
     private lastCall?: number;
     private readonly tokenPath: string;
     private token?: Token;
@@ -55,7 +56,9 @@ export class Handler {
                 this.token = JSON.parse(fs.readFileSync(this.tokenPath, { encoding: "utf-8" })) as Token;
             }
 
-            if (this.token.requested + this.token.expires_in < Math.trunc(Date.now() / 1000) - 30) {
+            if (this.forceTokenRefresh) {
+                console.warn("\tToken rejected, refreshing...");
+            } else if (this.token.requested + this.token.expires_in < Math.trunc(Date.now() / 1000) - 30) {
                 console.warn("\tToken expired, refreshing...");
             } else {
                 return this.token;
@@ -63,6 +66,8 @@ export class Handler {
         } catch (ignoreErr) {
 
         }
+
+        this.forceTokenRefresh = false;
 
         /* eslint-disable camelcase */
         const tokenData = querystring.stringify({
@@ -257,6 +262,15 @@ export class Handler {
                         break;
 
                     case 401:
+                        req.destroy();
+                        /*
+                         * Token may have expired or been invalidated mid-run; force the
+                         * retry's getToken() to refresh instead of reusing the dead token.
+                         */
+                        this.forceTokenRefresh = true;
+                        retry(`cannot continue: ${res.statusCode}`);
+                        break;
+
                     case 429:
                         req.destroy();
                         fail(new Error(`cannot continue: ${res.statusCode}`));
